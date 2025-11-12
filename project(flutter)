@@ -1,0 +1,657 @@
+import 'dart:math';
+import 'package:flutter/material.dart';
+
+// Helper function to convert Color to Hex string
+String _hexOf(Color c) =>
+    '#${c.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
+
+void main() {
+  runApp(const ClothingColorMatcherApp());
+}
+
+class ClothingColorMatcherApp extends StatelessWidget {
+  const ClothingColorMatcherApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Clothing Color Matcher',
+      theme: ThemeData(
+        colorSchemeSeed: Colors.teal,
+        useMaterial3: true,
+      ),
+      home: const MatcherHomePage(),
+      debugShowCheckedModeBanner: false,
+    );
+  }
+}
+
+class MatcherHomePage extends StatefulWidget {
+  const MatcherHomePage({super.key});
+
+  @override
+  State<MatcherHomePage> createState() => _MatcherHomePageState();
+}
+
+class _MatcherHomePageState extends State<MatcherHomePage> {
+  // Colors for top and bottom clothing pieces
+  Color topColor = const Color(0xFF4A90E2); // default: blue
+  Color bottomColor = const Color(0xFF222222); // default: dark gray
+
+  // Which side the user is selecting (true = selecting Top color)
+  bool selectingTop = true;
+
+  // If user selects a color, it's applied to 'selected side' immediately.
+  // Suggestions are computed for the opposite side.
+  List<_Suggestion> currentSuggestions = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _recomputeSuggestions();
+  }
+
+  void _applyBaseColor(Color color) {
+    setState(() {
+      if (selectingTop) {
+        topColor = color;
+      } else {
+        bottomColor = color;
+      }
+      _recomputeSuggestions();
+    });
+  }
+
+  void _applySuggestion(Color suggestedColor) {
+    setState(() {
+      if (selectingTop) {
+        // user picked top -> suggestions are bottoms
+        bottomColor = suggestedColor;
+      } else {
+        topColor = suggestedColor;
+      }
+      _recomputeSuggestions();
+    });
+  }
+
+  void _recomputeSuggestions() {
+    final Color base = selectingTop ? topColor : bottomColor;
+    currentSuggestions = _generateSuggestions(base);
+  }
+
+  // Generate a small set (4-6) of harmonious suggestions with labels
+  List<_Suggestion> _generateSuggestions(Color base) {
+    final HSLColor hsl = HSLColor.fromColor(base);
+    final double hue = hsl.hue;
+    final double sat = hsl.saturation;
+    final double light = hsl.lightness;
+
+    // Helpers to clamp hue
+    double wrapHue(double h) {
+      h = h % 360;
+      if (h < 0) h += 360;
+      return h;
+    }
+
+    Color fromHSL(double h, double s, double l) => HSLColor.fromAHSL(
+            hsl.alpha, wrapHue(h), s.clamp(0.0, 1.0), l.clamp(0.0, 1.0))
+        .toColor();
+
+    // Fashion-minded neutral helpers
+    const Color neutralBlack = Color(0xFF111111);
+    const Color neutralWhite = Color(0xFFFFFFFF);
+    const Color neutralGray = Color(0xFF9E9E9E);
+    const Color neutralBeige = Color(0xFFF5F0E6);
+
+    // Build suggestions:
+    final List<_Suggestion> sug = <_Suggestion>[];
+
+    // 1. Complementary (opposite hue) — usually a bold contrasting bottom
+    sug.add(_Suggestion(
+      color: fromHSL(hue + 180, max(0.35, sat * 0.85),
+          (1 - light) * 0.48 + 0.26),
+      label: 'Complementary',
+      tip: 'Bold contrast — try this for a statement bottom.',
+    ));
+
+    // 2. Analogous - neighbor hue (soft coordinated look)
+    sug.add(_Suggestion(
+      color: fromHSL(hue + 30, max(0.2, sat * 0.9), (light * 0.9).clamp(0.12, 0.92)),
+      label: 'Analogous (Warm)',
+      tip: 'Works for a harmonious, tonal outfit.',
+    ));
+    sug.add(_Suggestion(
+      color: fromHSL(hue - 30, max(0.2, sat * 0.9), (light * 0.9).clamp(0.12, 0.92)),
+      label: 'Analogous (Cool)',
+      tip: 'Subtle contrast while staying in the same family.',
+    ));
+
+    // 3. Triadic (balanced pop)
+    sug.add(_Suggestion(
+      color: fromHSL(hue + 120, sat.clamp(0.2, 1.0), (light * 0.95).clamp(0.08, 0.92)),
+      label: 'Triadic',
+      tip: 'Playful pop — good for creative or casual looks.',
+    ));
+
+    // 4. Neutral suggestions (safe bets)
+    sug.add(_Suggestion(
+      color: neutralBeige,
+      label: 'Neutral Beige',
+      tip: 'Classic, warm neutral that pairs with many colors.',
+    ));
+    sug.add(_Suggestion(
+      color: neutralGray,
+      label: 'Neutral Gray',
+      tip: 'A versatile, low-key pairing for everyday wear.',
+    ));
+    // Give black/white choices but try to keep them selective
+    if (light > 0.5) {
+      sug.add(_Suggestion(
+        color: neutralBlack,
+        label: 'Neutral Black',
+        tip: 'High contrast — works well with lighter tops.',
+      ));
+    } else {
+      sug.add(_Suggestion(
+        color: neutralWhite,
+        label: 'Neutral White',
+        tip: 'Crisp and fresh with darker tones.',
+      ));
+    }
+
+    // Return a unique set (avoid near-duplicates) and limit to 6 suggestions
+    final Map<int, _Suggestion> unique = <int, _Suggestion>{};
+    for (final _Suggestion s in sug) {
+      final int key = s.color.toARGB32();
+      unique[key] = s;
+      if (unique.length >= 6) break;
+    }
+    return unique.values.toList();
+  }
+
+  void _randomizeSelectedSide() {
+    final Random rnd = Random();
+    final Color color = Color.fromARGB(
+      0xFF,
+      rnd.nextInt(256),
+      rnd.nextInt(256),
+      rnd.nextInt(256),
+    );
+    _applyBaseColor(color);
+  }
+
+  // Simple short tip describing the final outfit sentence
+  String _outfitSentence() {
+    return selectingTop
+        ? 'Top ${_hexOf(topColor)} — suggested bottoms shown below.'
+        : 'Bottom ${_hexOf(bottomColor)} — suggested tops shown below.';
+  }
+
+  Future<void> _openColorPickerDialog(Color initialColor) async {
+    final Color? pickedColor = await showDialog<Color>(
+      context: context,
+      builder: (BuildContext context) {
+        return ColorPickerDialog(initialColor: initialColor);
+      },
+    );
+
+    if (pickedColor != null) {
+      _applyBaseColor(pickedColor);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Color baseColor = selectingTop ? topColor : bottomColor;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Clothing Color Matcher'),
+        actions: <Widget>[
+          IconButton(
+            tooltip: 'Randomize selected side',
+            onPressed: _randomizeSelectedSide,
+            icon: const Icon(Icons.shuffle),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        minimum: const EdgeInsets.all(12),
+        child: Column(
+          children: <Widget>[
+            // Toggle which side we're picking
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                ChoiceChip(
+                  label: const Text('Top (selecting)'),
+                  selected: selectingTop,
+                  onSelected: (bool v) => setState(() {
+                    selectingTop = true;
+                    _recomputeSuggestions();
+                  }),
+                ),
+                const SizedBox(width: 12),
+                ChoiceChip(
+                  label: const Text('Bottom (selecting)'),
+                  selected: !selectingTop,
+                  onSelected: (bool v) => setState(() {
+                    selectingTop = false;
+                    _recomputeSuggestions();
+                  }),
+                ),
+                const SizedBox(width: 12),
+                TextButton.icon(
+                  onPressed: () {
+                    // swap top and bottom
+                    setState(() {
+                      final Color tmp = topColor;
+                      topColor = bottomColor;
+                      bottomColor = tmp;
+                      _recomputeSuggestions();
+                    });
+                  },
+                  icon: const Icon(Icons.swap_horiz),
+                  label: const Text('Swap'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Visualization: top & bottom blocks
+            // Wrap this Row in a SizedBox to give it a bounded height
+            SizedBox(
+              height: 250.0, // A reasonable height for this section
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  Expanded(
+                    child: _ClothingPreview(
+                      topColor: topColor,
+                      bottomColor: bottomColor,
+                      selectingTop: selectingTop,
+                      selectingBottom: !selectingTop,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+
+                  // Selected color preview + hex + pick button
+                  Container(
+                    width: 150,
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      children: <Widget>[
+                        const Text('Selected Base',
+                            style: TextStyle(fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 8),
+                        Container(
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: baseColor,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.black12),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SelectableText(_hexOf(baseColor),
+                            style: const TextStyle(fontFamily: 'monospace')),
+                        const SizedBox(height: 8),
+                        ElevatedButton.icon(
+                          onPressed: () => _openColorPickerDialog(baseColor),
+                          icon: const Icon(Icons.palette_outlined),
+                          label: const Text('Pick Color'),
+                        ),
+                        const SizedBox(height: 6),
+                        TextButton(
+                          onPressed: () {
+                            // reset to defaults
+                            setState(() {
+                              topColor = const Color(0xFF4A90E2);
+                              bottomColor = const Color(0xFF222222);
+                              _recomputeSuggestions();
+                            });
+                          },
+                          child: const Text('Reset'),
+                        )
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Short sentence hint
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                _outfitSentence(),
+                style: const TextStyle(fontSize: 13, color: Colors.black87),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // Suggestions grid
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Text('Suggested Matches',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: GridView.builder(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        mainAxisSpacing: 8,
+                        crossAxisSpacing: 8,
+                        childAspectRatio: 0.9,
+                      ),
+                      itemCount: currentSuggestions.length,
+                      itemBuilder: (BuildContext context, int i) {
+                        final _Suggestion s = currentSuggestions[i];
+                        return GestureDetector(
+                          onTap: () => _applySuggestion(s.color),
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              children: <Widget>[
+                                Expanded(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: s.color,
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: Colors.black12),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  s.label,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 13),
+                                  textAlign: TextAlign.center,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  s.tip,
+                                  style: const TextStyle(
+                                      fontSize: 10, color: Colors.black54),
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Helper class to display the current top/bottom clothing colors.
+class _ClothingPreview extends StatelessWidget {
+  const _ClothingPreview({
+    required this.topColor,
+    required this.bottomColor,
+    required this.selectingTop,
+    required this.selectingBottom,
+  });
+
+  final Color topColor;
+  final Color bottomColor;
+  final bool selectingTop;
+  final bool selectingBottom;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: <Widget>[
+        // Top clothing piece
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(
+              color: topColor,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              border: selectingTop
+                  ? Border.all(color: Colors.blueAccent, width: 4)
+                  : Border.all(color: Colors.black12),
+            ),
+            alignment: Alignment.center,
+            child: const Text('Top',
+                style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+          ),
+        ),
+        const SizedBox(height: 4), // Small gap between top and bottom
+        // Bottom clothing piece
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(
+              color: bottomColor,
+              borderRadius:
+                  const BorderRadius.vertical(bottom: Radius.circular(16)),
+              border: selectingBottom
+                  ? Border.all(color: Colors.blueAccent, width: 4)
+                  : Border.all(color: Colors.black12),
+            ),
+            alignment: Alignment.center,
+            child: const Text('Bottom',
+                style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A private helper class to encapsulate a color suggestion along with its label and a helpful tip.
+class _Suggestion {
+  final Color color;
+  final String label;
+  final String tip;
+
+  const _Suggestion({required this.color, required this.label, required this.tip});
+}
+
+/// A dialog widget for picking colors using HSL sliders.
+class ColorPickerDialog extends StatefulWidget {
+  final Color initialColor;
+
+  const ColorPickerDialog({super.key, required this.initialColor});
+
+  @override
+  State<ColorPickerDialog> createState() => _ColorPickerDialogState();
+}
+
+class _ColorPickerDialogState extends State<ColorPickerDialog> {
+  late HSLColor _currentHslColor;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentHslColor = HSLColor.fromColor(widget.initialColor);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Pick Color'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            // Color preview
+            Container(
+              height: 100,
+              decoration: BoxDecoration(
+                color: _currentHslColor.toColor(),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.black12),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                _hexOf(_currentHslColor.toColor()),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                  shadows: <Shadow>[
+                    Shadow(blurRadius: 2, color: Colors.black54),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Hue Slider
+            _ColorSlider(
+              label: 'Hue',
+              value: _currentHslColor.hue,
+              min: 0.0,
+              max: 360.0,
+              divisions: 360,
+              onChanged: (double value) {
+                setState(() {
+                  _currentHslColor = _currentHslColor.withHue(value);
+                });
+              },
+              activeColor:
+                  HSLColor.fromAHSL(1.0, _currentHslColor.hue, 1.0, 0.5).toColor(),
+              inactiveColor: Colors.grey.shade300,
+            ),
+            const SizedBox(height: 8),
+
+            // Saturation Slider
+            _ColorSlider(
+              label: 'Saturation',
+              value: _currentHslColor.saturation,
+              min: 0.0,
+              max: 1.0,
+              divisions: 100,
+              onChanged: (double value) {
+                setState(() {
+                  _currentHslColor = _currentHslColor.withSaturation(value);
+                });
+              },
+              activeColor: HSLColor.fromAHSL(1.0, _currentHslColor.hue,
+                      _currentHslColor.saturation, _currentHslColor.lightness)
+                  .toColor(),
+              inactiveColor: HSLColor.fromAHSL(
+                      1.0, _currentHslColor.hue, 0.0, _currentHslColor.lightness)
+                  .toColor()
+                  .withAlpha((255 * 0.5).round()), // Fix: Use withAlpha instead of withOpacity
+            ),
+            const SizedBox(height: 8),
+
+            // Lightness Slider
+            _ColorSlider(
+              label: 'Lightness',
+              value: _currentHslColor.lightness,
+              min: 0.0,
+              max: 1.0,
+              divisions: 100,
+              onChanged: (double value) {
+                setState(() {
+                  _currentHslColor = _currentHslColor.withLightness(value);
+                });
+              },
+              activeColor: HSLColor.fromAHSL(1.0, _currentHslColor.hue,
+                      _currentHslColor.saturation, _currentHslColor.lightness)
+                  .toColor(),
+              inactiveColor: HSLColor.fromAHSL(1.0, _currentHslColor.hue,
+                      _currentHslColor.saturation, 0.5)
+                  .toColor()
+                  .withAlpha((255 * 0.5).round()), // Fix: Use withAlpha instead of withOpacity
+            ),
+          ],
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () {
+            Navigator.of(context).pop(); // Return null on cancel
+          },
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.of(context).pop(_currentHslColor.toColor()); // Return selected color
+          },
+          child: const Text('Select'),
+        ),
+      ],
+    );
+  }
+}
+
+/// A reusable widget for displaying and controlling a single color property slider.
+class _ColorSlider extends StatelessWidget {
+  const _ColorSlider({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    this.divisions,
+    required this.onChanged,
+    required this.activeColor,
+    required this.inactiveColor,
+  });
+
+  final String label;
+  final double value;
+  final double min;
+  final double max;
+  final int? divisions;
+  final ValueChanged<double> onChanged;
+  final Color activeColor;
+  final Color inactiveColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+            '$label: ${(value * (label == 'Hue' ? 1 : 100)).toStringAsFixed(label == 'Hue' ? 0 : 1)}${label == 'Hue' ? '°' : '%'}'),
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: 12.0,
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10.0),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 20.0),
+            activeTrackColor: activeColor,
+            inactiveTrackColor: inactiveColor,
+          ),
+          child: Slider(
+            value: value,
+            min: min,
+            max: max,
+            divisions: divisions,
+            onChanged: onChanged,
+          ),
+        ),
+      ],
+    );
+  }
+}
